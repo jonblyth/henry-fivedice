@@ -118,6 +118,7 @@ main { min-height: 0; min-width: 0; display: flex; }
 .done .c { background: color-mix(in srgb, var(--ps) 70%, var(--surface)); }
 button.c:not([aria-disabled]):active { filter: brightness(.94); }
 .c[aria-disabled] { cursor: default; }
+.c .tap { width: clamp(20px, 3.2vh, 28px); height: clamp(20px, 3.2vh, 28px); fill: currentColor; }
 .c.editable { outline: 2px dashed color-mix(in srgb, var(--pc) 70%, transparent); outline-offset: -6px; border-radius: 10px; }
 .c.empty { color: color-mix(in srgb, var(--pc) 55%, var(--muted)); font: 500 .8rem var(--body); opacity: .7; }
 .c.zero { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 2px; }
@@ -257,6 +258,7 @@ const fresh = (slots, record = {}) => ({ players: slots.map(s => ({ name: s.name
 
 const PIPS = { 1: [[2,2]], 2: [[1,1],[3,3]], 3: [[1,1],[2,2],[3,3]], 4: [[1,1],[3,1],[1,3],[3,3]], 5: [[1,1],[3,1],[2,2],[1,3],[3,3]], 6: [[1,1],[3,1],[1,2],[3,2],[1,3],[3,3]] };
 const die = n => `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="1" width="18" height="18" rx="4.5" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.4"/>${PIPS[n].map(([x, y]) => `<circle cx="${x * 5}" cy="${y * 5}" r="1.9" fill="var(--fg)"/>`).join('')}</svg>`;
+const TAP = `<svg class="tap" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11.24V7.5C9 6.12 10.12 5 11.5 5S14 6.12 14 7.5v3.74c1.21-.81 2-2.18 2-3.74C16 5.01 13.99 3 11.5 3S7 5.01 7 7.5c0 1.56.79 2.93 2 3.74zm9.84 4.63-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6c0-.83-.67-1.5-1.5-1.5S10 6.67 10 7.5v10.74l-3.43-.72c-.08-.01-.15-.03-.24-.03-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27c.01-.07.02-.14.02-.2 0-.62-.38-1.16-.91-1.38z"/></svg>`;
 const CROWN = cls => `<svg class="crown ${cls}" viewBox="0 0 26 20" aria-label="Leading"><path d="M2.5 17.5 1.5 5l6.5 5.5L13 1.5l5 9 6.5-5.5-1 12.5z" fill="var(--gold)" stroke="var(--gold-edge)" stroke-width="1.3" stroke-linejoin="round"/><circle cx="13" cy="12.5" r="1.8" fill="var(--c-red)"/></svg>`;
 
 let state, history = [], lastCell = null, bounceCrown = -1;
@@ -325,7 +327,7 @@ function render() {
     const pop = lastCell === `${i}:${c.id}` ? 'pop' : '';
     const hot = hype && hype.i === i && hype.c.id === c.id ? 'hot' : '';
     const ed = ok && s != null ? 'editable' : '';
-    return `<button class="${cls(i, `${st} ${pop} ${hot} ${ed} ${rowCls}`)}" style="${pv(P[i])}" data-p="${i}" data-c="${c.id}" ${lock(ok)} aria-label="${esc(P[i].name)}, ${c.label}">${s == null ? (ok ? (hot ? '🤞' : 'tap') : '') : s}</button>`;
+    return `<button class="${cls(i, `${st} ${pop} ${hot} ${ed} ${rowCls}`)}" style="${pv(P[i])}" data-p="${i}" data-c="${c.id}" ${lock(ok)} aria-label="${esc(P[i].name)}, ${c.label}">${s == null ? (ok ? (hot ? '🤞' : TAP) : '') : s}</button>`;
   };
   const lab = (title, hint, icon = '', extra = '') => `<div class="lab ${extra}">${icon}<div><b>${title}</b>${hint ? `<i class="hint">${hint}</i>` : ''}</div></div>`;
 
