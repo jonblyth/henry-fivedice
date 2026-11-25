@@ -116,7 +116,9 @@ main { min-height: 0; min-width: 0; display: flex; }
 .c { border: 0; border-left: 1px solid var(--line); background: color-mix(in srgb, var(--ps) 45%, var(--surface)); display: grid; place-items: center; font: 600 clamp(1.05rem, 3vh, 1.6rem)/1 var(--display); padding: 0; }
 .c.cur { background: var(--ps); }
 .done .c { background: color-mix(in srgb, var(--ps) 70%, var(--surface)); }
-button.c:active { filter: brightness(.94); }
+button.c:not([aria-disabled]):active { filter: brightness(.94); }
+.c[aria-disabled] { cursor: default; }
+.c.editable { outline: 2px dashed color-mix(in srgb, var(--pc) 70%, transparent); outline-offset: -6px; border-radius: 10px; }
 .c.empty { color: color-mix(in srgb, var(--pc) 55%, var(--muted)); font: 500 .8rem var(--body); opacity: .7; }
 .c.zero { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 2px; }
 .c.sum { font-size: clamp(1rem, 2.6vh, 1.35rem); gap: 1px; align-content: center; }
@@ -251,7 +253,7 @@ const pv = p => `--pc:var(--c-${p.color});--ps:var(--c-${p.color}-soft);--pi:var
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pickOne = a => a[Math.floor(Math.random() * a.length)];
-const fresh = (slots, record = {}) => ({ players: slots.map(s => ({ name: s.name, color: s.color, scores: {}, wb: 0 })), turn: 0, record, recorded: false, shown: false });
+const fresh = (slots, record = {}) => ({ players: slots.map(s => ({ name: s.name, color: s.color, scores: {}, wb: 0 })), turn: 0, record, winners: [], last: null, shown: false });
 
 const PIPS = { 1: [[2,2]], 2: [[1,1],[3,3]], 3: [[1,1],[2,2],[3,3]], 4: [[1,1],[3,1],[1,3],[3,3]], 5: [[1,1],[3,1],[2,2],[1,3],[3,3]], 6: [[1,1],[3,1],[1,2],[3,2],[1,3],[3,3]] };
 const die = n => `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="1" width="18" height="18" rx="4.5" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.4"/>${PIPS[n].map(([x, y]) => `<circle cx="${x * 5}" cy="${y * 5}" r="1.9" fill="var(--fg)"/>`).join('')}</svg>`;
@@ -309,12 +311,21 @@ function render() {
   document.body.style.setProperty('--n', P.length);
   board.classList.toggle('done', done);
   const cls = (i, extra = '') => `c ${isCur(i) ? 'cur' : ''} ${extra}`;
+  const L = state.last;
+  // empty boxes: only the current player's. Filled boxes: only the most recent score, until the next player scores.
+  const canEdit = (i, cid) => {
+    if (cid === 'wb') return (!done && i === state.turn) || (!!L && L.p === i);
+    if (P[i].scores[cid] == null) return !done && i === state.turn;
+    return !!L && L.p === i && L.c === cid;
+  };
+  const lock = ok => ok ? '' : 'aria-disabled="true" tabindex="-1"';
   const cell = (i, c, rowCls) => {
-    const s = P[i].scores[c.id];
+    const s = P[i].scores[c.id], ok = canEdit(i, c.id);
     const st = s == null ? 'empty' : s === 0 ? 'zero' : '';
     const pop = lastCell === `${i}:${c.id}` ? 'pop' : '';
     const hot = hype && hype.i === i && hype.c.id === c.id ? 'hot' : '';
-    return `<button class="${cls(i, `${st} ${pop} ${hot} ${rowCls}`)}" style="${pv(P[i])}" data-p="${i}" data-c="${c.id}" aria-label="${esc(P[i].name)}, ${c.label}">${s == null ? (hot ? '🤞' : 'tap') : s}</button>`;
+    const ed = ok && s != null ? 'editable' : '';
+    return `<button class="${cls(i, `${st} ${pop} ${hot} ${ed} ${rowCls}`)}" style="${pv(P[i])}" data-p="${i}" data-c="${c.id}" ${lock(ok)} aria-label="${esc(P[i].name)}, ${c.label}">${s == null ? (ok ? (hot ? '🤞' : 'tap') : '') : s}</button>`;
   };
   const lab = (title, hint, icon = '', extra = '') => `<div class="lab ${extra}">${icon}<div><b>${title}</b>${hint ? `<i class="hint">${hint}</i>` : ''}</div></div>`;
 
@@ -326,7 +337,7 @@ function render() {
   }).join('');
   h += lab('Bonus', '35 for 63 or more', '', 'tot brk') + T.map((t, i) => `<div class="${cls(i, 'sum brk')}" style="${pv(P[i])}">${t.bonus ? '<span class="earned">35</span>' : t.upFilled ? '0' : `<small>needs ${63 - t.up}</small>`}</div>`).join('');
   for (const c of LOWER) h += lab(c.id === 'wowzer' ? 'Wowzer<span class="wowtag">50</span>' : c.label, c.hint) + P.map((_, i) => cell(i, c, '')).join('');
-  h += lab('Wowzer bonus', '+100 per extra Wowzer', '', 'last') + P.map((p, i) => `<button class="${cls(i, `${p.wb ? '' : 'empty'} last ${lastCell === i + ':wb' ? 'pop' : ''}`)}" style="${pv(p)}" data-p="${i}" data-c="wb">${p.wb ? p.wb * 100 : '+'}</button>`).join('');
+  h += lab('Wowzer bonus', '+100 per extra Wowzer', '', 'last') + P.map((p, i) => `<button class="${cls(i, `${p.wb ? '' : 'empty'} last ${lastCell === i + ':wb' ? 'pop' : ''}`)}" style="${pv(p)}" data-p="${i}" data-c="wb" ${lock(canEdit(i, 'wb'))}>${p.wb ? p.wb * 100 : canEdit(i, 'wb') ? '+' : ''}</button>`).join('');
   board.innerHTML = h;
 
   lastCell = null; bounceCrown = -1;
@@ -355,7 +366,11 @@ function pick(pi, cid) {
     <div class="row">${cur != null ? '<button class="btn" data-clear>Clear box</button>' : ''}<button class="btn" data-close>Cancel</button></div>`, p);
   sheet.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { closeSheet(); setScore(pi, cid, +b.dataset.v); });
   const clr = sheet.querySelector('[data-clear]');
-  if (clr) clr.onclick = () => { snapshot(); delete p.scores[cid]; state.shown = false; closeSheet(); render(); };
+  if (clr) clr.onclick = () => {
+    snapshot(); delete p.scores[cid];
+    state.turn = pi; state.last = null; state.shown = false; settleRecord();
+    closeSheet(); render();
+  };
 }
 
 function pickBonus(pi) {
@@ -377,6 +392,16 @@ function pickBonus(pi) {
   };
 }
 
+// Keep the games-won tally matching the current result, so correcting a final score moves the win.
+function settleRecord() {
+  const now = finished() ? leaders(state.players.map(totals)).map(i => state.players[i].name) : [];
+  const prev = state.winners || [];
+  if (now.join('\n') === prev.join('\n')) return;
+  prev.forEach(n => { if (state.record[n]) state.record[n]--; });
+  now.forEach(n => { state.record[n] = (state.record[n] || 0) + 1; });
+  state.winners = now;
+}
+
 function noteLead(pi, before) {
   const after = leaders(state.players.map(totals));
   if (after.length === 1 && after[0] === pi && !(before.length === 1 && before[0] === pi)) bounceCrown = pi;
@@ -390,12 +415,9 @@ function setScore(pi, cid, v) {
   if (wasEmpty && pi === state.turn) state.turn = (state.turn + 1) % state.players.length;
   noteLead(pi, leadBefore);
   lastCell = `${pi}:${cid}`;
+  state.last = { p: pi, c: cid };
   const over = finished();
-  if (over && !state.recorded) {
-    const T = state.players.map(totals);
-    leaders(T).forEach(i => { const n = state.players[i].name; state.record[n] = (state.record[n] || 0) + 1; });
-    state.recorded = true;
-  }
+  settleRecord();
   render();
   if (over && !state.shown) {
     state.shown = true; save();
@@ -482,6 +504,7 @@ function editPlayer(i) {
       const n = document.getElementById('rn').value.trim() || p.name;
       snapshot();
       if (n !== p.name && state.record[p.name] != null && state.record[n] == null) { state.record[n] = state.record[p.name]; delete state.record[p.name]; }
+      if (state.winners) state.winners = state.winners.map(w => w === p.name ? n : w);
       p.name = n;
       swapColor(P, i, color);
       closeSheet(); render();
@@ -492,7 +515,7 @@ function editPlayer(i) {
 }
 
 document.getElementById('board').addEventListener('click', e => {
-  const c = e.target.closest('[data-c]'); if (c) return pick(+c.dataset.p, c.dataset.c);
+  const c = e.target.closest('[data-c]'); if (c) return c.hasAttribute('aria-disabled') ? null : pick(+c.dataset.p, c.dataset.c);
   const n = e.target.closest('[data-name]'); if (n) return editPlayer(+n.dataset.name);
 });
 document.getElementById('undo').onclick = () => { if (!history.length) return; state = JSON.parse(history.pop()); render(); };
@@ -772,7 +795,14 @@ function start(data) {
   const saved = data && data.state ? data : load();
   if (saved) { state = saved.state; history = saved.history || []; }
   else state = fresh([{ name: 'Player 1', color: 'red' }, { name: 'Player 2', color: 'blue' }]);
-  const fix = s => s.players.forEach((p, i) => { p.color = p.color || DEFAULTS[i]; });
+  const fix = s => {
+    s.players.forEach((p, i) => { p.color = p.color || DEFAULTS[i]; });
+    if (!('winners' in s)) {
+      const done = s.players.every(p => filled(p) === CATS.length);
+      s.winners = s.recorded && done ? leaders(s.players.map(totals)).map(i => s.players[i].name) : [];
+      delete s.recorded;
+    }
+  };
   fix(state);
   history = history.map(h => { try { const s = JSON.parse(h); fix(s); return JSON.stringify(s); } catch (e) { return h; } });
   render();
