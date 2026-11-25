@@ -189,7 +189,15 @@ input[type=text] { font: 500 1.1rem var(--body); color: var(--fg); background: v
 .balloon { position: fixed; left: 50%; top: 58%; pointer-events: none; z-index: 31; transform: translate(-50%, -50%); }
 .balloon span { display: block; font-size: min(26vh, 200px); line-height: 1; animation: deflate 2.4s cubic-bezier(.4, 0, .6, 1) forwards; }
 @keyframes deflate { 0% { transform: scale(.2); } 24% { transform: scale(1.25); } 32% { transform: scale(1.05) rotate(-6deg); } 44% { transform: translate(12vw, -6vh) rotate(50deg) scale(.85); } 56% { transform: translate(-14vw, -16vh) rotate(-70deg) scale(.65); } 68% { transform: translate(16vw, -26vh) rotate(130deg) scale(.5); } 80% { transform: translate(-9vw, -36vh) rotate(-80deg) scale(.35); } 100% { transform: translate(22vw, -64vh) rotate(220deg) scale(.1); opacity: 0; } }
+/* last-turn hype */
+.turn.hyped { animation: hyped .7s ease-in-out infinite alternate; }
+@keyframes hyped { from { transform: scale(1) rotate(-1deg); box-shadow: 0 0 0 0 var(--pc); } to { transform: scale(1.04) rotate(1deg); box-shadow: 0 0 28px 4px var(--pc); } }
+.hypeglow { position: fixed; inset: 0; pointer-events: none; z-index: 19; box-shadow: inset 0 0 80px 14px var(--pc); animation: glow .9s ease-in-out infinite alternate; }
+@keyframes glow { from { opacity: .3; } to { opacity: .95; } }
+.c.hot { position: relative; z-index: 1; font-size: clamp(1.3rem, 3.6vh, 2rem); animation: hot .6s ease-in-out infinite alternate; }
+@keyframes hot { from { box-shadow: inset 0 0 0 3px var(--pc); } to { box-shadow: inset 0 0 0 3px var(--pc), 0 0 24px 6px var(--pc); transform: scale(1.06); } }
 @media (prefers-reduced-motion: reduce) {
+  .turn.hyped, .hypeglow, .c.hot { animation: none; }
   .shout.sad b i { animation: none; }
   .shout b, .shout span { animation: fade 1.8s forwards; }
   @keyframes fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
@@ -273,6 +281,9 @@ function render() {
   const P = state.players, done = finished(), T = P.map(totals), lead = leaders(T);
   const isCur = i => !done && i === state.turn;
   const round = Math.min(13, Math.min(...P.map(filled)) + 1);
+  const hype = hypeCheck();
+  const hkey = hype ? `${hype.i}:${hype.c.id}` : '';
+  if (hkey !== hypeKey) { stopHype(); hypeKey = hkey; if (hype) { hypePhrase = pickOne(['YOU CAN DO IT!', 'GO FOR IT!']); startHype(hype); } }
 
   // sidebar
   const turn = document.getElementById('turn');
@@ -280,10 +291,14 @@ function render() {
     const w = lead.map(i => P[i]);
     turn.style.cssText = pv(w[0] || P[0]);
     turn.innerHTML = `<small>Game over</small><strong>${esc(w.map(p => p.name).join(' & '))}</strong><span>${w.length > 1 ? 'tie' : 'wins'} with ${T[lead[0]]?.grand ?? 0}</span>`;
+  } else if (hype) {
+    turn.style.cssText = pv(P[hype.i]);
+    turn.innerHTML = `<small>Last turn · ${esc(P[hype.i].name)}</small><strong>${hypePhrase}</strong><span>${esc(hypeNeed(hype))}</span>`;
   } else {
     turn.style.cssText = pv(P[state.turn]);
     turn.innerHTML = `<small>Round ${round} of 13</small><strong>${esc(P[state.turn].name)}</strong><span>your turn</span>`;
   }
+  turn.classList.toggle('hyped', !!hype);
   document.getElementById('standings').innerHTML = P.map((p, i) => `<li class="${isCur(i) ? 'cur' : ''}" style="${pv(p)}"><span class="dot"></span><span class="nm">${esc(p.name)}</span>${lead.includes(i) ? CROWN(bounceCrown === i ? 'bounce' : '') : '<span></span>'}<b>${T[i].grand}</b></li>`).join('');
   const rec = Object.entries(state.record).filter(([n]) => P.some(p => p.name === n));
   document.getElementById('wins').textContent = rec.length ? 'Games won: ' + rec.map(([n, w]) => `${n} ${w}`).join(' · ') : '';
@@ -298,7 +313,8 @@ function render() {
     const s = P[i].scores[c.id];
     const st = s == null ? 'empty' : s === 0 ? 'zero' : '';
     const pop = lastCell === `${i}:${c.id}` ? 'pop' : '';
-    return `<button class="${cls(i, `${st} ${pop} ${rowCls}`)}" style="${pv(P[i])}" data-p="${i}" data-c="${c.id}" aria-label="${esc(P[i].name)}, ${c.label}">${s == null ? 'tap' : s}</button>`;
+    const hot = hype && hype.i === i && hype.c.id === c.id ? 'hot' : '';
+    return `<button class="${cls(i, `${st} ${pop} ${hot} ${rowCls}`)}" style="${pv(P[i])}" data-p="${i}" data-c="${c.id}" aria-label="${esc(P[i].name)}, ${c.label}">${s == null ? (hot ? '🤞' : 'tap') : s}</button>`;
   };
   const lab = (title, hint, icon = '', extra = '') => `<div class="lab ${extra}">${icon}<div><b>${title}</b>${hint ? `<i class="hint">${hint}</i>` : ''}</div></div>`;
 
@@ -327,6 +343,7 @@ function closeSheet() { sheet.hidden = true; sheet.innerHTML = ''; }
 sheet.addEventListener('click', e => { if (e.target.hasAttribute('data-close')) closeSheet(); });
 
 function pick(pi, cid) {
+  if (hypeKey === `${pi}:${cid}`) stopHype();
   if (cid === 'wb') return pickBonus(pi);
   const p = state.players[pi], c = byId[cid], cur = p.scores[cid];
   const opt = (v, sub = '', extra = '') => `<button class="opt ${extra} ${cur === v ? 'sel' : ''}" data-v="${v}">${v}${sub ? `<small>${sub}</small>` : ''}</button>`;
@@ -561,6 +578,47 @@ function party(tier, p, title, sub, emoji) {
   FX[lastFx](colors, lastFx === 'rain' ? (emoji || ['🎲', '⭐', '🎉', '✨']) : undefined);
 }
 
+/* ---------- last-turn hype ---------- */
+let hypeKey = '', hypePhrase = '', hypeTimer = null, hypeGlow = null;
+
+// The current player's final open box, if the best score in it would take them into the lead.
+function hypeCheck() {
+  if (finished()) return null;
+  const P = state.players, i = state.turn, p = P[i];
+  const open = CATS.filter(c => p.scores[c.id] == null);
+  if (open.length !== 1) return null;
+  const c = open[0], T = P.map(totals), me = T[i];
+  const best = Math.max(...T.filter((_, j) => j !== i).map(t => t.grand));
+  if (me.grand >= best) return null; // only when they're behind right now
+  const vals = c.type === 'face' ? [1, 2, 3, 4, 5].map(k => k * c.face)
+    : c.type === 'sum' ? Array.from({ length: 26 }, (_, k) => k + 5) : [c.val];
+  const gain = v => v + (c.type === 'face' && !me.bonus && me.up + v >= 63 ? 35 : 0);
+  const need = vals.find(v => me.grand + gain(v) > best);
+  return need == null ? null : { i, c, need };
+}
+function hypeNeed({ c, need }) {
+  if (c.type === 'fixed') return `Score the ${c.label} to take the lead`;
+  if (c.type === 'face') { const k = need / c.face; return `${k === 5 ? 'All five' : k + '+'} ${c.label.toLowerCase()} takes the lead`; }
+  return `${need}+ in ${c.label} takes the lead`;
+}
+function startHype(h) {
+  const p = state.players[h.i];
+  shout(hypePhrase, hypeNeed(h), p);
+  sfx.drumroll();
+  hypeGlow = document.createElement('div');
+  hypeGlow.className = 'hypeglow'; hypeGlow.style.cssText = pv(p);
+  document.body.append(hypeGlow);
+  if (calm) return;
+  hypeTimer = setInterval(() => {
+    add({ t: 'emoji', e: Math.random() < .8 ? '🤞' : pickOne(['🍀', '✨', '🙏']), x: rnd(0, W), y: -50, vx: rnd(-.4, .4), vy: rnd(2.5, 4), g: .03, drag: .995, vr: rnd(-.03, .03), s: rnd(34, 60), life: 7000 });
+    runFx();
+  }, 160);
+}
+function stopHype() {
+  clearInterval(hypeTimer); hypeTimer = null;
+  if (hypeGlow) { hypeGlow.remove(); hypeGlow = null; }
+}
+
 /* ---------- commiserations ---------- */
 const SAD_WORDS = ['Oof.', 'Ouch.', 'Meh.', 'Womp womp.', 'Oh dear.', 'Bad luck.'];
 let lastBoo = '';
@@ -654,6 +712,11 @@ const sfx = {
     // clapping
     const cb = filt('bandpass', 1800, .9); cb.connect(master);
     for (let i = 0; i < (big ? 60 : 30); i++) { const s = t + rnd(.05, dur - .3), cg = ac.createGain(); env(cg, s, rnd(.15, .35), .002, 0, .06); noise(s, .08).connect(cg); cg.connect(cb); }
+  },
+  drumroll() {
+    if (!audio()) return; const t = ac.currentTime, bp = filt('bandpass', 1500, .7); bp.connect(master);
+    for (let i = 0; i < 44; i++) { const s = t + i * .038, g = ac.createGain(); env(g, s, .04 + .3 * (i / 44), .002, 0, .05); noise(s, .07).connect(g); g.connect(bp); }
+    const end = t + 44 * .038, cg = ac.createGain(), hp = filt('highpass', 4000); env(cg, end, .35, .005, .05, .9); noise(end, 1).connect(hp); hp.connect(cg); cg.connect(master);
   },
   raspberry() {
     if (!audio()) return; const t = ac.currentTime, d = .95;
