@@ -15,6 +15,7 @@ src = (ROOT / "index.html").read_text()
 head, body = src.split("<aside>", 1)
 body = "<aside>" + body
 head = head.replace('<meta name="apple-mobile-web-app-capable" content="yes">\n', "")
+head = head.replace('<meta charset="utf-8">\n', "")
 
 page = f"""<!doctype html>
 <html lang="en">
