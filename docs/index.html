@@ -89,7 +89,12 @@ aside { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflo
 .standings li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
 .standings li.cur { border-color: var(--pc); box-shadow: inset 0 0 0 1px var(--pc); }
 .standings .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--pc); }
-.standings .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.standings .nm { min-width: 0; display: grid; gap: 4px; }
+.standings .nm > span { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pips { display: flex; gap: 4px; }
+.pips i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--pc); }
+.pips i.on { background: var(--pc); }
+.lbl { font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: -8px; }
 .standings b { font: 700 1.5rem/1 var(--display); font-variant-numeric: tabular-nums; min-width: 2.2ch; text-align: right; }
 .crown { width: 26px; height: 20px; display: block; filter: drop-shadow(0 1px 0 var(--gold-edge)); }
 .crown.bounce { animation: crown 1s cubic-bezier(.3, 1.6, .5, 1); }
@@ -174,7 +179,7 @@ button.c:not([aria-disabled]):active { filter: brightness(.94); }
 .stepper .opt { width: 78px; }
 .stepper output { font: 700 2.6rem var(--display); min-width: 3ch; text-align: center; }
 .seg { display: flex; gap: 8px; }
-.seg .opt { flex: 1; min-height: 56px; }
+.seg .opt { flex: 1; min-height: 56px; font-size: 1.15rem; }
 .slot { display: grid; gap: 8px; padding: 12px; border-radius: 16px; background: var(--ps); }
 input[type=text] { font: 500 1.1rem var(--body); color: var(--fg); background: var(--surface); border: 2px solid var(--pc); border-radius: 12px; padding: 10px 12px; min-height: 50px; width: 100%; }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -269,7 +274,8 @@ const pv = p => `--pc:var(--c-${p.color});--ps:var(--c-${p.color}-soft);--pi:var
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pickOne = a => a[Math.floor(Math.random() * a.length)];
-const fresh = (slots, record = {}) => ({ players: slots.map(s => ({ name: s.name, color: s.color, scores: {}, wb: 0 })), turn: 0, record, winners: [], last: null, shown: false });
+const fresh = (slots, record = {}, match = { bestOf: 1, wins: {}, played: 0 }) => ({ players: slots.map(s => ({ name: s.name, color: s.color, scores: {}, wb: 0 })), turn: 0, record, match, winners: [], last: null, shown: false });
+const newMatch = bestOf => ({ bestOf, wins: {}, played: 0 });
 
 const PIPS = { 1: [[2,2]], 2: [[1,1],[3,3]], 3: [[1,1],[2,2],[3,3]], 4: [[1,1],[3,1],[1,3],[3,3]], 5: [[1,1],[3,1],[2,2],[1,3],[3,3]], 6: [[1,1],[3,1],[1,2],[3,2],[1,3],[3,3]] };
 const die = n => `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="1" width="18" height="18" rx="4.5" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.4"/>${PIPS[n].map(([x, y]) => `<circle cx="${x * 5}" cy="${y * 5}" r="1.9" fill="var(--fg)"/>`).join('')}</svg>`;
@@ -306,21 +312,25 @@ function render() {
 
   // sidebar
   const turn = document.getElementById('turn');
-  if (done) {
+  const ms = matchStatus(), bo = state.match.bestOf;
+  if (done && bo > 1 && ms.decided) {
+    turn.style.cssText = pv(ms.winners[0] || P[0]);
+    turn.innerHTML = `<small>Match over · best of ${bo}</small><strong>${esc(ms.winners.map(p => p.name).join(' & '))}</strong><span>${ms.winners.length > 1 ? 'tie the match' : 'wins the match'} ${matchScore(ms)}</span>`;
+  } else if (done) {
     const w = lead.map(i => P[i]);
     turn.style.cssText = pv(w[0] || P[0]);
-    turn.innerHTML = `<small>Game over</small><strong>${esc(w.map(p => p.name).join(' & '))}</strong><span>${w.length > 1 ? 'tie' : 'wins'} with ${T[lead[0]]?.grand ?? 0}</span>`;
+    turn.innerHTML = `<small>Game over${bo > 1 ? ` · match ${matchScore(ms)}` : ''}</small><strong>${esc(w.map(p => p.name).join(' & '))}</strong><span>${w.length > 1 ? 'tie' : 'wins'} with ${T[lead[0]]?.grand ?? 0}</span>`;
   } else if (hype) {
     turn.style.cssText = pv(P[hype.i]);
     turn.innerHTML = `<small>Last turn · ${esc(P[hype.i].name)}</small><strong>${hypePhrase}</strong><span>${esc(hypeNeed(hype))}</span>`;
   } else {
     turn.style.cssText = pv(P[state.turn]);
-    turn.innerHTML = `<small>Round ${round} of 13</small><strong>${esc(P[state.turn].name)}</strong><span>your turn</span>`;
+    turn.innerHTML = `<small>${bo > 1 ? `Best of ${bo} · game ${ms.game} · ` : ''}Turn ${round} of 13</small><strong>${esc(P[state.turn].name)}</strong><span>your turn</span>`;
   }
   turn.classList.toggle('hyped', !!hype);
-  document.getElementById('standings').innerHTML = P.map((p, i) => `<li class="${isCur(i) ? 'cur' : ''}" style="${pv(p)}"><span class="dot"></span><span class="nm">${esc(p.name)}</span>${lead.includes(i) ? CROWN(bounceCrown === i ? 'bounce' : '') : '<span></span>'}<b>${T[i].grand}</b></li>`).join('');
+  document.getElementById('standings').innerHTML = P.map((p, i) => `<li class="${isCur(i) ? 'cur' : ''}" style="${pv(p)}"><span class="dot"></span><span class="nm"><span>${esc(p.name)}</span>${bo > 1 ? `<span class="pips" aria-label="${ms.w[i]} match wins">${Array.from({ length: ms.need }, (_, k) => `<i class="${k < ms.w[i] ? 'on' : ''}"></i>`).join('')}</span>` : ''}</span>${lead.includes(i) ? CROWN(bounceCrown === i ? 'bounce' : '') : '<span></span>'}<b>${T[i].grand}</b></li>`).join('');
   const rec = Object.entries(state.record).filter(([n]) => P.some(p => p.name === n));
-  document.getElementById('wins').textContent = rec.length ? 'Games won: ' + rec.map(([n, w]) => `${n} ${w}`).join(' · ') : '';
+  document.getElementById('wins').textContent = rec.length ? 'All-time wins: ' + rec.map(([n, w]) => `${n} ${w}`).join(' · ') : '';
   document.getElementById('undo').disabled = !history.length;
 
   // board
@@ -414,9 +424,25 @@ function settleRecord() {
   const now = finished() ? leaders(state.players.map(totals)).map(i => state.players[i].name) : [];
   const prev = state.winners || [];
   if (now.join('\n') === prev.join('\n')) return;
-  prev.forEach(n => { if (state.record[n]) state.record[n]--; });
-  now.forEach(n => { state.record[n] = (state.record[n] || 0) + 1; });
+  const m = state.match;
+  prev.forEach(n => { if (state.record[n]) state.record[n]--; if (m.wins[n]) m.wins[n]--; });
+  now.forEach(n => { state.record[n] = (state.record[n] || 0) + 1; m.wins[n] = (m.wins[n] || 0) + 1; });
+  if (!prev.length && now.length) m.played++;
+  else if (prev.length && !now.length) m.played--;
   state.winners = now;
+}
+
+// Best of N: first to a majority of N wins, or most wins once N games are played.
+function matchStatus() {
+  const m = state.match, P = state.players, need = Math.ceil(m.bestOf / 2);
+  const w = P.map(p => m.wins[p.name] || 0), max = Math.max(...w);
+  const decided = max >= need || m.played >= m.bestOf;
+  return { need, w, max, decided, winners: decided ? P.filter((_, i) => w[i] === max) : [], game: m.played + (finished() ? 0 : 1) };
+}
+function matchScore(ms) {
+  const P = state.players;
+  if (P.length === 2) return [...ms.w].sort((a, b) => b - a).join('–');
+  return P.map((p, i) => ({ n: p.name, w: ms.w[i] })).sort((a, b) => b.w - a.w).map(x => `${x.n} ${x.w}`).join(' · ');
 }
 
 function noteLead(pi, before) {
@@ -467,10 +493,19 @@ function cheer(p, c, v, before, after) {
 function showResults() {
   const ranked = state.players.map(p => ({ p, t: totals(p).grand })).sort((a, b) => b.t - a.t);
   const rec = Object.entries(state.record).filter(([n]) => state.players.some(p => p.name === n));
-  openSheet(`<div><h2>Game over</h2><p>${rec.map(([n, w]) => `${esc(n)}: ${w} win${w === 1 ? '' : 's'}`).join(' · ')}</p></div>
+  const ms = matchStatus(), bo = state.match.bestOf, matchOver = bo > 1 && ms.decided;
+  const head = matchOver
+    ? `<h2>${esc(ms.winners.map(p => p.name).join(' & '))} ${ms.winners.length > 1 ? 'tie the match' : 'wins the match!'}</h2><p>Best of ${bo} · final score ${esc(matchScore(ms))}</p>`
+    : `<h2>Game over</h2><p>${bo > 1 ? `Best of ${bo} · match score ${esc(matchScore(ms))}` : rec.map(([n, w]) => `${esc(n)}: ${w} win${w === 1 ? '' : 's'}`).join(' · ')}</p>`;
+  const label = bo === 1 ? 'Play again' : matchOver ? 'New match' : `Next game`;
+  openSheet(`<div>${head}</div>
     <div class="rank">${ranked.map((r, i) => `<div style="${pv(r.p)}">${i === 0 ? CROWN('') : ''}<span>${esc(r.p.name)}</span><b>${r.t}</b></div>`).join('')}</div>
-    <div class="row"><button class="btn" data-close>See scorecard</button><button class="btn primary" id="again">Play again</button></div>`, ranked[0].p);
-  document.getElementById('again').onclick = () => { state = fresh(state.players, state.record); history = []; closeSheet(); render(); };
+    <div class="row"><button class="btn" data-close>See scorecard</button><button class="btn primary" id="again">${label}</button></div>`, (matchOver ? ms.winners[0] : null) || ranked[0].p);
+  document.getElementById('again').onclick = () => {
+    const m = ms.decided ? newMatch(bo) : { bestOf: bo, wins: { ...state.match.wins }, played: state.match.played };
+    state = fresh(state.players, state.record, m); history = []; closeSheet(); render();
+  };
+  if (matchOver) party(3, ms.winners[0], ms.winners.length > 1 ? 'Match tied!' : 'MATCH WON!', `${ms.winners.map(p => p.name).join(' & ')} · ${matchScore(ms)}`, ['🏆', '👑', '🥇', '🎉']);
 }
 
 const swatches = (slot, chosen) => `<div class="swatches">${COLORS.map(([id, name]) => `<button class="sw" style="--pc:var(--c-${id})" data-slot="${slot}" data-color="${id}" aria-label="${name}" aria-pressed="${id === chosen}"></button>`).join('')}</div>`;
@@ -482,7 +517,8 @@ function swapColor(list, slot, color) {
 
 function newGame() {
   const slots = state.players.map(p => ({ name: p.name, color: p.color }));
-  let count = slots.length;
+  let count = slots.length, bestOf = state.match.bestOf;
+  const ms = matchStatus(), canContinue = state.match.played > 0 && !ms.decided;
   const fill = () => {
     while (slots.length < count) {
       const used = slots.map(s => s.color);
@@ -493,17 +529,29 @@ function newGame() {
   const draw = () => {
     fill();
     const active = slots.slice(0, count);
-    openSheet(`<div><h2>New game</h2><p>${finished() ? 'Pick players and colours.' : 'This clears the current scorecard. Games won are kept.'}</p></div>
+    const note = canContinue
+      ? `Match score ${esc(matchScore(ms))}. Continue keeps it going; New match starts from 0–0.${finished() ? '' : ' The unfinished game won’t count.'}`
+      : finished() ? 'Pick players, colours and match length.' : 'This clears the current scorecard.';
+    openSheet(`<div><h2>New game</h2><p>${note}</p></div>
+      <div class="lbl">Match</div>
+      <div class="seg">${[1,3,5,7].map(b => `<button class="opt ${b === bestOf ? 'sel' : ''}" data-b="${b}">${b === 1 ? 'Single' : 'Best of ' + b}<small>${b === 1 ? 'one game' : `first to ${Math.ceil(b / 2)}`}</small></button>`).join('')}</div>
+      <div class="lbl">Players</div>
       <div class="seg">${[2,3,4].map(n => `<button class="opt ${n === count ? 'sel' : ''}" data-n="${n}">${n}<small>players</small></button>`).join('')}</div>
       ${active.map((s, i) => `<div class="slot" style="${pv(s)}"><input type="text" id="ng-${i}" value="${esc(s.name)}" autocomplete="off" aria-label="Player ${i + 1} name">${swatches(i, s.color)}</div>`).join('')}
-      <div class="row"><button class="btn" data-close>Cancel</button><button class="btn primary" id="ngstart">Start game</button></div>`, active[0]);
+      <div class="row"><button class="btn" data-close>Cancel</button>${canContinue
+        ? `<button class="btn" id="ngnew">New match</button><button class="btn primary" id="ngcont">Continue match</button>`
+        : `<button class="btn primary" id="ngnew">${bestOf === 1 ? 'Start game' : 'Start match'}</button>`}</div>`, active[0]);
+    sheet.querySelectorAll('[data-b]').forEach(b => b.onclick = () => { grab(); bestOf = +b.dataset.b; draw(); });
     sheet.querySelectorAll('[data-n]').forEach(b => b.onclick = () => { grab(); count = +b.dataset.n; draw(); });
     sheet.querySelectorAll('.sw').forEach(b => b.onclick = () => { grab(); swapColor(slots.slice(0, count), +b.dataset.slot, b.dataset.color); draw(); });
-    document.getElementById('ngstart').onclick = () => {
+    const go = cont => {
       grab();
       const list = slots.slice(0, count).map((s, i) => ({ name: s.name.trim() || 'Player ' + (i + 1), color: s.color }));
-      state = fresh(list, state.record); history = []; closeSheet(); render();
+      const m = cont ? { bestOf, wins: { ...state.match.wins }, played: state.match.played } : newMatch(bestOf);
+      state = fresh(list, state.record, m); history = []; closeSheet(); render();
     };
+    document.getElementById('ngnew').onclick = () => go(false);
+    const cont = document.getElementById('ngcont'); if (cont) cont.onclick = () => go(true);
   };
   draw();
 }
@@ -522,6 +570,7 @@ function editPlayer(i) {
       snapshot();
       if (n !== p.name && state.record[p.name] != null && state.record[n] == null) { state.record[n] = state.record[p.name]; delete state.record[p.name]; }
       if (state.winners) state.winners = state.winners.map(w => w === p.name ? n : w);
+      if (n !== p.name && state.match.wins[p.name] != null) { state.match.wins[n] = state.match.wins[p.name]; delete state.match.wins[p.name]; }
       p.name = n;
       swapColor(P, i, color);
       closeSheet(); render();
@@ -818,6 +867,10 @@ function start(data) {
       const done = s.players.every(p => filled(p) === CATS.length);
       s.winners = s.recorded && done ? leaders(s.players.map(totals)).map(i => s.players[i].name) : [];
       delete s.recorded;
+    }
+    if (!s.match) {
+      s.match = { bestOf: 1, wins: {}, played: s.winners.length ? 1 : 0 };
+      s.winners.forEach(n => { s.match.wins[n] = 1; });
     }
   };
   fix(state);
