@@ -177,6 +177,16 @@ input[type=text] { font: 500 1.1rem var(--body); color: var(--fg); background: v
 .rank div:first-child { background: var(--pc); color: var(--pi); font: 700 1.35rem var(--display); }
 .rank b { font: 700 1.3rem var(--display); }
 
+/* ---------- who goes first ---------- */
+.rollers { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+.roller { border: 3px solid transparent; background: var(--ps); border-radius: 18px; padding: 14px 8px; display: grid; justify-items: center; gap: 8px; font: 600 1.05rem var(--display); overflow-wrap: anywhere; transition: opacity .3s, transform .3s, border-color .3s; }
+.rdie svg { width: 72px; height: 72px; display: block; }
+.roller.rolling .rdie { animation: tumble .28s linear infinite; }
+@keyframes tumble { 0%, 100% { transform: none; } 25% { transform: rotate(16deg) translateY(-7px); } 75% { transform: rotate(-16deg) translateY(-4px); } }
+.roller.out { opacity: .35; transform: scale(.94); }
+.roller.win { border-color: var(--pc); transform: scale(1.06); box-shadow: 0 6px 20px color-mix(in srgb, var(--pc) 40%, transparent); }
+.panel p.aside { font-size: .85rem; text-align: center; margin: 0; }
+
 /* ---------- celebrations ---------- */
 #fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
 .shout { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; z-index: 31; }
@@ -205,7 +215,7 @@ input[type=text] { font: 500 1.1rem var(--body); color: var(--fg); background: v
 .c.hot { position: relative; z-index: 1; font-size: clamp(1.3rem, 3.6vh, 2rem); animation: hot .6s ease-in-out infinite alternate; }
 @keyframes hot { from { box-shadow: inset 0 0 0 3px var(--pc); } to { box-shadow: inset 0 0 0 3px var(--pc), 0 0 24px 6px var(--pc); transform: scale(1.06); } }
 @media (prefers-reduced-motion: reduce) {
-  .turn.hyped, .hypeglow, .c.hot { animation: none; }
+  .turn.hyped, .hypeglow, .c.hot, .roller.rolling .rdie { animation: none; }
   .shout.sad b i { animation: none; }
   .shout b, .shout span { animation: fade 1.8s forwards; }
   @keyframes fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
@@ -259,8 +269,14 @@ const pv = p => `--pc:var(--c-${p.color});--ps:var(--c-${p.color}-soft);--pi:var
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pickOne = a => a[Math.floor(Math.random() * a.length)];
-const fresh = (slots, record = {}, match = { bestOf: 1, wins: {}, played: 0 }) => ({ players: slots.map(s => ({ name: s.name, color: s.color, scores: {}, wb: 0 })), turn: 0, record, match, winners: [], last: null, shown: false });
-const newMatch = bestOf => ({ bestOf, wins: {}, played: 0 });
+// The match's first game starts with whoever won the roll-off; after that the starter rotates each game.
+const fresh = (slots, record = {}, match = newMatch(1)) => ({
+  players: slots.map(s => ({ name: s.name, color: s.color, scores: {}, wb: 0 })),
+  turn: match.first == null ? 0 : (match.first + match.played) % slots.length,
+  record, match, winners: [], last: null, shown: false,
+});
+function newMatch(bestOf) { return { bestOf, wins: {}, played: 0, first: null }; }
+const keepMatch = (m, bestOf = m.bestOf) => ({ bestOf, wins: { ...m.wins }, played: m.played, first: m.first });
 
 const PIPS = { 1: [[2,2]], 2: [[1,1],[3,3]], 3: [[1,1],[2,2],[3,3]], 4: [[1,1],[3,1],[1,3],[3,3]], 5: [[1,1],[3,1],[2,2],[1,3],[3,3]], 6: [[1,1],[3,1],[1,2],[3,2],[1,3],[3,3]] };
 const die = n => `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="1" width="18" height="18" rx="4.5" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.4"/>${PIPS[n].map(([x, y]) => `<circle cx="${x * 5}" cy="${y * 5}" r="1.9" fill="var(--fg)"/>`).join('')}</svg>`;
@@ -487,8 +503,9 @@ function showResults() {
     <div class="rank">${ranked.map((r, i) => `<div style="${pv(r.p)}">${i === 0 ? CROWN('') : ''}<span>${esc(r.p.name)}</span><b>${r.t}</b></div>`).join('')}</div>
     <div class="row"><button class="btn" data-close>See scorecard</button><button class="btn primary" id="again">${label}</button></div>`, (matchOver ? ms.winners[0] : null) || ranked[0].p);
   document.getElementById('again').onclick = () => {
-    const m = ms.decided ? newMatch(bo) : { bestOf: bo, wins: { ...state.match.wins }, played: state.match.played };
+    const m = ms.decided ? newMatch(bo) : keepMatch(state.match);
     state = fresh(state.players, state.record, m); history = []; closeSheet(); render();
+    if (ms.decided) rollOff();
   };
   if (matchOver) party(3, ms.winners[0], ms.winners.length > 1 ? 'Match tied!' : 'MATCH WON!', `${ms.winners.map(p => p.name).join(' & ')} · ${matchScore(ms)}`, ['🏆', '👑', '🥇', '🎉']);
 }
@@ -532,13 +549,57 @@ function newGame() {
     const go = cont => {
       grab();
       const list = slots.slice(0, count).map((s, i) => ({ name: s.name.trim() || 'Player ' + (i + 1), color: s.color }));
-      const m = cont ? { bestOf, wins: { ...state.match.wins }, played: state.match.played } : newMatch(bestOf);
+      const m = cont ? keepMatch(state.match, bestOf) : newMatch(bestOf);
       state = fresh(list, state.record, m); history = []; closeSheet(); render();
+      if (!cont) rollOff();
     };
     document.getElementById('ngnew').onclick = () => go(false);
     const cont = document.getElementById('ngcont'); if (cont) cont.onclick = () => go(true);
   };
   draw();
+}
+
+const rollDie = n => `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="1" width="18" height="18" rx="4.5" fill="var(--pc)"/>${PIPS[n].map(([x, y]) => `<circle cx="${x * 5}" cy="${y * 5}" r="1.9" fill="var(--pi)"/>`).join('')}</svg>`;
+
+// Roll-off for who starts the match: highest roll wins, tied players roll again.
+function rollOff() {
+  const P = state.players, timers = [];
+  let chosen = null;
+  openSheet(`<div><h2>Who goes first?</h2><p id="ro-msg">Rolling…</p></div>
+    <div class="rollers">${P.map((p, i) => `<button class="roller" style="${pv(p)}" data-r="${i}"><span class="rdie" id="rd-${i}">${rollDie(1 + i % 6)}</span><span>${esc(p.name)}</span></button>`).join('')}</div>
+    <p class="aside">Rolling real dice instead? Tap whoever won.</p>
+    <div class="row"><button class="btn" id="ro-again">Roll again</button><button class="btn primary" id="ro-go" disabled>Let’s go</button></div>`, P[0]);
+  sheet.querySelector('.scrim').removeAttribute('data-close');
+  const panel = sheet.querySelector('.panel'), msg = document.getElementById('ro-msg'), go = document.getElementById('ro-go');
+  const card = i => sheet.querySelector(`[data-r="${i}"]`);
+  const face = (i, v) => { document.getElementById('rd-' + i).innerHTML = rollDie(v); };
+  const stop = () => { timers.forEach(t => clearTimeout(t)); timers.length = 0; P.forEach((_, i) => card(i).classList.remove('rolling')); };
+  const choose = i => {
+    stop(); chosen = i;
+    P.forEach((_, j) => { card(j).classList.toggle('win', j === i); card(j).classList.toggle('out', j !== i); });
+    panel.style.cssText = pv(P[i]);
+    msg.textContent = `${P[i].name} goes first!`;
+    go.disabled = false; sfx.chime();
+  };
+  const roll = ids => {
+    stop(); chosen = null; go.disabled = true; msg.textContent = 'Rolling…';
+    P.forEach((_, j) => { card(j).classList.remove('win'); card(j).classList.toggle('out', !ids.includes(j)); card(j).classList.toggle('rolling', ids.includes(j)); });
+    sfx.rattle();
+    timers.push(setInterval(() => ids.forEach(i => face(i, 1 + Math.floor(Math.random() * 6))), 80));
+    timers.push(setTimeout(() => {
+      stop();
+      const vals = ids.map(i => { const v = 1 + Math.floor(Math.random() * 6); face(i, v); return v; });
+      const max = Math.max(...vals), top = ids.filter((_, k) => vals[k] === max);
+      if (top.length === 1) return choose(top[0]);
+      msg.textContent = `Tie on ${max}! Rolling again…`;
+      P.forEach((_, j) => card(j).classList.toggle('out', !top.includes(j)));
+      timers.push(setTimeout(() => roll(top), 1100));
+    }, calm ? 300 : 1200));
+  };
+  sheet.querySelectorAll('[data-r]').forEach(b => b.onclick = () => choose(+b.dataset.r));
+  document.getElementById('ro-again').onclick = () => roll(P.map((_, i) => i));
+  go.onclick = () => { stop(); state.match.first = chosen; state.turn = chosen; closeSheet(); render(); };
+  roll(P.map((_, i) => i));
 }
 
 function editPlayer(i) {
@@ -786,6 +847,10 @@ const sfx = {
     // clapping
     const cb = filt('bandpass', 1800, .9); cb.connect(master);
     for (let i = 0; i < (big ? 60 : 30); i++) { const s = t + rnd(.05, dur - .3), cg = ac.createGain(); env(cg, s, rnd(.15, .35), .002, 0, .06); noise(s, .08).connect(cg); cg.connect(cb); }
+  },
+  rattle() {
+    if (!audio()) return; const t = ac.currentTime, bp = filt('bandpass', 2600, 1.5); bp.connect(master);
+    for (let i = 0; i < 14; i++) { const s = t + i * .08 + rnd(0, .04), g = ac.createGain(); env(g, s, rnd(.2, .45), .001, 0, .035); noise(s, .05).connect(g); g.connect(bp); }
   },
   drumroll() {
     if (!audio()) return; const t = ac.currentTime, bp = filt('bandpass', 1500, .7); bp.connect(master);
